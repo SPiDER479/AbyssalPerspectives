@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Abyssal Perspectives</title>
+    <style>
+        /* CSS Styles remain the same */
+        body {
+            font-family: 'Courier New', Courier, monospace;
+            margin: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+            min-height: 100vh; background-color: #0a0a1a; color: #e0e0e0;
+            padding: 20px; box-sizing: border-box;
+        }
+        #game-output {
+            margin-bottom: 20px; font-size: 1em; min-height: 60px; text-align: center;
+            width: 90%; max-width: 700px; line-height: 1.5;
+            background-color: rgba(20, 20, 40, 0.7); padding: 10px 15px; border-radius: 8px;
+            border: 1px solid #303050; box-shadow: 0 0 10px rgba(100, 100, 255, 0.2);
+        }
+        #game-canvas {
+            border: 2px solid #404060; padding: 15px; font-size: 1.1em; line-height: 1.2;
+            white-space: pre; width: 90%; max-width: 700px; min-height: 250px;
+            margin-bottom: 20px; overflow: auto; background-color: #101025; border-radius: 8px;
+            box-shadow: 0 0 15px rgba(150, 150, 255, 0.1);
+            font-feature-settings: "liga" 0, "calt" 0; letter-spacing: normal;
+        }
+        .description {
+            font-size: 0.9em; color: #b0b0c0; margin-bottom: 15px; text-align: center;
+            width: 90%; max-width: 700px; line-height: 1.4;
+        }
+        .player { color: #00ff00; font-weight: bold; text-shadow: 0 0 5px #00ff00; }
+        .platform { color: #80a0ff; }
+        .structure { color: #a0c0ff; }
+        .hazard { color: #ffcc00; }
+        .special { color: #00ffff; font-weight: bold; text-shadow: 0 0 5px #00ffff; }
+        .convergence { /* Style for convergence point elements */ }
+        .shift-trigger { color: #ff00ff; font-weight: bold; text-shadow: 0 0 5px #ff00ff; }
+    </style>
+    <script>
+        // --- Game State Variables ---
+        let playerX = 5;
+        let playerY = 9;
+        let gameMessage = "Use WASD or Arrow Keys to move. Find your perspective.";
+        let perspectiveShifted = false;
+        let gameEnded = false;
+
+        // --- Physics Variables ---
+        let playerVY = 0;
+        let isGrounded = true;
+        const gravity = 1;
+        const jumpPower = -3;
+        const maxFallSpeed = 3;
+
+        // --- Level Definitions ---
+        const initialLevelDef = [
+            "--------------------", // y = 0
+            "                    ", // y = 1
+            "                    ", // y = 2
+            "       -------      ", // y = 3  <--- Target platform for level change (x=7 to x=13)
+            "                    ", // y = 4
+            "    ----------      ", // y = 5
+            "                    ", // y = 6
+            "  -------------     ", // y = 7
+            "                    ", // y = 8
+            "------P-------------", // y = 9 <--- Start
+            "                    ", // y = 10
+            "                    ", // y = 11
+            "--------------------", // y = 12
+            "                    ", // y = 13
+            "                    "  // y = 14
+        ];
+        const shiftedLevel = [ /* ... same as before ... */
+            "    ||||||||||    ", "    |        |    ", " ---+--------+--- ", "    |        |    ", "    | ****** |    ", " ---+--------+--- ", "    |        |    ", "    ||||||||||    ", "                    ", "                    ", "\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\", " \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\ ", "  \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\  ", "   \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\   ", "                    " ];
+        const convergencePointLayout = [ /* ... same as before ... */
+            "                    ", "          * /|\\         ", "        //|\\|//        ", "-------===*@*===-------", "\\\\\\\\\\\\\\\\\\|//////////", " \\\\\\\\\\\\|//////// ", "  ======*======  ", "       / | \\       ", "      / /|\\ \\      ", "     * \\|/  * *** * ", "                    ", "                    ", "                    ", "                    ", "                    " ];
+        const convergencePointMessage = `... same as before ...`;
+
+        let currentLevel = JSON.parse(JSON.stringify(initialLevelDef));
+
+        // --- Core Game Logic Functions ---
+
+        function isSolid(x, y) {
+            if (y < 0 || y >= currentLevel.length || x < 0 || x >= currentLevel[y].length) { return false; }
+            const char = currentLevel[y][x];
+            return ['-', '|', '+', '\\', '/', '=', '*'].includes(char);
+        }
+
+        function checkGrounded() {
+            return isSolid(playerX, playerY + 1);
+        }
+
+        // --- Perspective Shift / Convergence Point Checks ---
+        function checkPerspectiveShift() {
+            // --- MODIFIED TRIGGER ---
+            // Trigger when player reaches ANYWHERE on the top platform (y=3, x=7 to 13)
+            const triggerY = 3;
+            const triggerStartX = 7;
+            const triggerEndX = 13;
+            if (!perspectiveShifted && playerY === triggerY && playerX >= triggerStartX && playerX <= triggerEndX) {
+            // --- END MODIFIED TRIGGER ---
+                 console.log(`>>> PERSPECTIVE SHIFT TRIGGERED at (${playerX}, ${playerY})!`); // Keep debug log
+                perspectiveShifted = true; gameMessage = "The world shifts! Lines twist into unfamiliar patterns.";
+                currentLevel = JSON.parse(JSON.stringify(shiftedLevel));
+                playerX = 5; playerY = 6; // Reposition for shifted level
+                playerVY = 0; isGrounded = checkGrounded();
+                gameMessage += " You find yourself in a structured corridor.";
+                return true; // Indicate shift happened
+            }
+            return false; // No shift
+        }
+        function checkConvergencePoint() {
+            const endX = 10; const endY = 4; // Target in shifted level
+            if (perspectiveShifted && !gameEnded && playerX === endX && playerY === endY) {
+                console.log(`>>> CONVERGENCE POINT TRIGGERED at (${playerX}, ${playerY})!`); // Keep debug log
+                gameEnded = true; currentLevel = JSON.parse(JSON.stringify(convergencePointLayout));
+                gameMessage = convergencePointMessage.trim();
+                 for (let y = 0; y < currentLevel.length; y++) {
+                    const finalPlayerIndex = currentLevel[y].indexOf('@');
+                    if (finalPlayerIndex !== -1) {
+                        playerX = finalPlayerIndex; playerY = y;
+                        let lineArr = currentLevel[y].split(''); lineArr[finalPlayerIndex] = '*'; currentLevel[y] = lineArr.join('');
+                        break;
+                    }
+                 }
+                document.removeEventListener('keydown', handleInput); return true;
+            } return false;
+        }
+
+        // --- Update Game State (Physics-Based) ---
+        function updateGame(direction) {
+             if (gameEnded) return;
+
+            let targetX = playerX;
+            let moveAttemptMessage = "";
+            let horizontalMoveAttempted = false;
+            let jumpedThisTurn = false;
+            let originalPlayerY = playerY;
+
+            // 1. Process Player Input
+            switch (direction) {
+                 case 'up':
+                    if (isGrounded) {
+                        playerVY = jumpPower; isGrounded = false; moveAttemptMessage = "Jumped!"; jumpedThisTurn = true;
+                    } else { moveAttemptMessage = "Cannot jump while airborne!"; }
+                    break;
+                case 'down': break;
+                case 'left': targetX--; moveAttemptMessage = "Moved Left."; horizontalMoveAttempted = true; break;
+                case 'right': targetX++; moveAttemptMessage = "Moved Right."; horizontalMoveAttempted = true; break;
+                default: return;
+            }
+
+            // 2. Validate and Apply Horizontal Movement
+            if (horizontalMoveAttempted) {
+                const outOfBounds = targetX < 0 || (playerY >= currentLevel.length || playerY < 0) || targetX >= currentLevel[playerY].length;
+                if (outOfBounds) { moveAttemptMessage = "Blocked by boundary."; }
+                else if (isSolid(targetX, playerY)) { moveAttemptMessage = "Blocked."; }
+                else { playerX = targetX; }
+            }
+             if (!moveAttemptMessage.includes("Blocked") && !(direction === 'up' && moveAttemptMessage.includes("Cannot jump"))) {
+                 gameMessage = moveAttemptMessage;
+             } else if (moveAttemptMessage) { gameMessage = moveAttemptMessage; }
+
+
+            // 3. Apply Physics (Vertical Movement)
+            playerVY += gravity;
+            if (playerVY > maxFallSpeed) playerVY = maxFallSpeed;
+
+            let targetY = originalPlayerY + playerVY;
+            let verticalMoveBlocked = false;
+
+            // 4. Vertical Collision Detection
+            if (playerVY > 0) { // Moving Down
+                for (let y = originalPlayerY + 1; y <= targetY; y++) {
+                    if (isSolid(playerX, y)) {
+                        playerY = y - 1; playerVY = 0; isGrounded = true; verticalMoveBlocked = true;
+                        if (!jumpedThisTurn) gameMessage = "Landed.";
+                        break;
+                    }
+                }
+            } else if (playerVY <= 0) { // Moving Up or Stationary
+                 isGrounded = false;
+                 for (let y = originalPlayerY - 1; y >= targetY; y--) {
+                     if (isSolid(playerX, y)) {
+                         let charAbove = currentLevel[y][playerX];
+                         // Allow pass-through platforms
+                         if ((charAbove === '-' || charAbove === '=') && !isSolid(playerX, y - 1)) {
+                              continue;
+                         }
+                         // Handle landing / ceiling
+                         if (jumpedThisTurn && y === targetY) { // Land on target
+                              playerY = y; playerVY = 0; isGrounded = true; verticalMoveBlocked = true;
+                              gameMessage = "Landed.";
+                         } else { // Hit ceiling
+                              playerY = y + 1; playerVY = 0; verticalMoveBlocked = true;
+                              gameMessage = "Blocked.";
+                         }
+                         break;
+                     }
+                 }
+            }
+
+            // 5. Apply Vertical Movement if not blocked
+            if (!verticalMoveBlocked) {
+                playerY = targetY;
+            }
+
+            // 6. Check Vertical Boundaries
+            if (playerY >= currentLevel.length) {
+                gameMessage = "You fell into the Abyss... Perspective lost. Refresh to restart.";
+                gameEnded = true; document.removeEventListener('keydown', handleInput);
+                drawGame(); return;
+            }
+             if (playerY < 0) {
+                 playerY = 0; if (playerVY < 0) playerVY = 0;
+             }
+
+            // 7. Final Ground Check
+            isGrounded = checkGrounded();
+            if (isGrounded && playerVY >= 0) { // Reset VY if grounded and not moving up
+                 playerVY = 0;
+            }
+
+            // 8. Check for Game Events (NOW checks happen *after* position is finalized)
+            let eventTriggeredDraw = false;
+            if (checkPerspectiveShift()) {
+                drawGame(); // Perspective shift handles its own draw
+                eventTriggeredDraw = true;
+                return; // Stop further processing this turn
+            }
+            if (checkConvergencePoint()) {
+                drawGame(); // Convergence point handles its own draw
+                eventTriggeredDraw = true;
+                return; // Stop further processing this turn
+            }
+
+            // 9. Draw the updated state if no event triggered draw
+            if (!gameEnded && !eventTriggeredDraw) {
+                 drawGame();
+            }
+        }
+
+        // Draw the game state with styled elements
+        function drawGame() {
+            const gameCanvas = document.getElementById('game-canvas');
+            const gameOutput = document.getElementById('game-output');
+            if (!gameCanvas || !gameOutput) return;
+
+            let display = "";
+            const isConverged = gameEnded && currentLevel === convergencePointLayout;
+            const playerChar = isConverged ? '@' : 'P';
+            // --- MODIFIED: Define trigger range for drawing ---
+            const triggerY = 3;
+            const triggerStartX = 7;
+            const triggerEndX = 13;
+
+             for (let y = 0; y < currentLevel.length; y++) {
+                 let lineChars = []; // Use an array to build the line with HTML
+                 for (let x = 0; x < currentLevel[y].length; x++) {
+                      let char = currentLevel[y][x];
+                      let styledChar = char; // Default to plain character
+                      // --- MODIFIED: Check if current (x,y) is part of the trigger platform ---
+                      let isTriggerPoint = !perspectiveShifted && y === triggerY && x >= triggerStartX && x <= triggerEndX;
+
+                      // Apply styling based on character type OR if it's the trigger
+                      if (isTriggerPoint) {
+                           // Ensure we only style the actual platform characters ('-') as triggers
+                           if (char === '-') {
+                               styledChar = `<span class="shift-trigger">${char}</span>`;
+                           } else {
+                               // Keep spaces within the trigger zone as spaces
+                               styledChar = ' ';
+                           }
+                      } else {
+                           // Apply standard styling if not the trigger point
+                           switch (char) {
+                               case '-': case '=': styledChar = `<span class="platform">${char}</span>`; break;
+                               case '|': case '+': styledChar = `<span class="structure">${char}</span>`; break;
+                               case '\\': case '/': styledChar = `<span class="hazard">${char}</span>`; break;
+                               case '*': styledChar = `<span class="special">${char}</span>`; break;
+                               case ' ': styledChar = ' '; break;
+                           }
+                      }
+                      lineChars.push(styledChar);
+                 }
+
+                 // Overlay the player character if they are on this line
+                 if (y === playerY && playerX >= 0 && playerX < lineChars.length) {
+                      if (!gameEnded || isConverged) {
+                           lineChars[playerX] = `<span class="player">${playerChar}</span>`;
+                      }
+                 }
+                 display += lineChars.join('') + "\n"; // Join the styled characters for the line
+             }
+
+            gameCanvas.innerHTML = display;
+            gameOutput.textContent = gameMessage;
+        }
+
+         // Event listener function (Handles WASD/Arrows)
+         function handleInput(event) {
+            if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)) {
+                event.preventDefault();
+            }
+             if (gameEnded) { return; }
+
+            switch (event.key) {
+                case 'w': case 'ArrowUp': updateGame('up'); break; // Jump
+                case 'a': case 'ArrowLeft': updateGame('left'); break;
+                case 's': case 'ArrowDown': updateGame('down'); break; // Down (currently ignored in updateGame)
+                case 'd': case 'ArrowRight': updateGame('right'); break;
+            }
+        }
+
+        // --- Initialization ---
+        window.onload = () => {
+            let foundStart = false;
+            for(let y=0; y<initialLevelDef.length; y++) {
+                const pIndex = initialLevelDef[y].indexOf('P');
+                if (pIndex !== -1) {
+                    playerX = pIndex; playerY = y; foundStart = true;
+                    let lineArr = currentLevel[y].split('');
+                    lineArr[pIndex] = '-'; // Replace 'P' with '-'
+                    currentLevel[y] = lineArr.join('');
+                    break;
+                }
+            }
+             if (!foundStart) {
+                 console.warn("Initial player position 'P' not found, using defaults.");
+                 playerX = 5; playerY = 9;
+             }
+             // Initial state setup
+             isGrounded = checkGrounded();
+             playerVY = 0;
+
+            drawGame();
+            document.addEventListener('keydown', handleInput);
+        };
+    </script>
+</head>
+<body>
+    <div class="description">
+        <p>
+             Use WASD or Arrow Keys to move. Find your perspective.
+        </p>
+    </div>
+    <div id="game-output"></div>
+    <div id="game-canvas"></div>
+</body>
+</html>
